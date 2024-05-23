@@ -30,7 +30,7 @@ struct Opts {
 
     /// Use the provided RTT control block address instead of scanning the target memory for it.
     #[clap(long, name = "control-block-address")]
-    pub control_block_address: Option<u32>,
+    pub control_block_address: Option<u64>,
 
     /// The RTT up (target to host) channel number to poll on (defaults to 1).
     #[clap(long, name = "up-channel", default_value = "1")]
@@ -152,7 +152,7 @@ fn main() {
         if probes.is_empty() {
             panic!("No probes available");
         }
-        probes[0].open(&lister).expect("probe open")
+        probes[0].open().expect("probe open")
     };
 
     debug!(protocol = %opts.protocol, speed = opts.speed, "Configuring probe");
