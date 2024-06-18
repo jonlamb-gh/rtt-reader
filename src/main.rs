@@ -1,10 +1,12 @@
 use clap::Parser;
+use human_bytes::human_bytes;
 use probe_rs::{
     config::MemoryRegion,
     probe::{list::Lister, DebugProbeSelector, WireProtocol},
     rtt::{ChannelMode, Rtt, ScanRegion},
     Core, CoreStatus, HaltReason, Permissions, RegisterValue, VectorCatchCondition,
 };
+use simple_moving_average::{NoSumSMA, SMA};
 use std::{
     fs,
     io::{self, Write},
@@ -13,7 +15,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Write RTT data from target to a file
 #[derive(Parser, Debug, Clone)]
@@ -302,6 +304,7 @@ fn main() {
         core.run().unwrap();
     }
 
+    let mut metrics = Metrics::new(buffer.len());
     loop {
         if intr.is_set() {
             break;
@@ -311,7 +314,7 @@ fn main() {
             .expect("RTT channel read");
 
         if rtt_bytes_read != 0 {
-            debug!(bytes = rtt_bytes_read, "Writing RTT data");
+            trace!(bytes = rtt_bytes_read, "Writing RTT data");
             out_file.write_all(&buffer[..rtt_bytes_read]).unwrap();
         }
 
@@ -327,6 +330,8 @@ fn main() {
         } else {
             std::thread::sleep(Duration::from_millis(100));
         }
+
+        metrics.update(rtt_bytes_read);
     }
 
     debug!("Shutting down");
@@ -410,5 +415,70 @@ impl Interruptor {
 impl Default for Interruptor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+struct Metrics {
+    rtt_buffer_size: u64,
+    window_start: Instant,
+    read_cnt: u64,
+    bytes_read: u64,
+    read_zero_cnt: u64,
+    read_max_cnt: u64,
+    sma: NoSumSMA<f64, f64, 8>,
+}
+
+impl Metrics {
+    const WINDOW_DURATION: Duration = Duration::from_secs(2);
+
+    fn new(host_rtt_buffer_size: usize) -> Self {
+        Self {
+            rtt_buffer_size: host_rtt_buffer_size as u64,
+            window_start: Instant::now(),
+            read_cnt: 0,
+            bytes_read: 0,
+            read_zero_cnt: 0,
+            read_max_cnt: 0,
+            sma: NoSumSMA::new(),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.read_cnt = 0;
+        self.bytes_read = 0;
+        self.read_zero_cnt = 0;
+        self.read_max_cnt = 0;
+
+        self.window_start = Instant::now();
+    }
+
+    fn update(&mut self, bytes_read: usize) {
+        let dur = Instant::now().duration_since(self.window_start);
+
+        self.read_cnt += 1;
+        self.bytes_read += bytes_read as u64;
+        if bytes_read == 0 {
+            self.read_zero_cnt += 1;
+        } else {
+            if bytes_read as u64 == self.rtt_buffer_size {
+                self.read_max_cnt += 1;
+            }
+            self.sma.add_sample(bytes_read as f64);
+        }
+
+        if dur >= Self::WINDOW_DURATION {
+            let bytes = self.bytes_read as f64;
+            let secs = dur.as_secs_f64();
+
+            info!(
+                transfer_rate = format!("{}/s", human_bytes(bytes / secs)),
+                cnt = self.read_cnt,
+                zero_cnt = self.read_zero_cnt,
+                max_cnt = self.read_max_cnt,
+                avg = self.sma.get_average(),
+            );
+
+            self.reset();
+        }
     }
 }
