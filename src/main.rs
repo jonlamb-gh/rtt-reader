@@ -1,7 +1,6 @@
 use clap::Parser;
 use human_bytes::human_bytes;
 use probe_rs::{
-    config::MemoryRegion,
     probe::{list::Lister, DebugProbeSelector, WireProtocol},
     rtt::{ChannelMode, Rtt, ScanRegion},
     Core, CoreStatus, HaltReason, Permissions, RegisterValue, VectorCatchCondition,
@@ -32,7 +31,7 @@ struct Opts {
 
     /// Use the provided RTT control block address instead of scanning the target memory for it.
     #[clap(long, name = "control-block-address")]
-    pub control_block_address: Option<u64>,
+    pub control_block_address: Option<u32>,
 
     /// The RTT up (target to host) channel number to poll on (defaults to 1).
     #[clap(long, name = "up-channel", default_value = "1")]
@@ -173,28 +172,24 @@ fn main() {
             .expect("probe attach session")
     };
 
-    let rtt_scan_regions = session.target().rtt_scan_regions.clone();
-    let mut rtt_scan_region = if rtt_scan_regions.is_empty() {
-        ScanRegion::Ram
-    } else {
-        ScanRegion::Ranges(rtt_scan_regions)
-    };
-    if let Some(user_provided_addr) = opts.control_block_address {
+    let rtt_scan_region = if let Some(user_provided_addr) = opts.control_block_address {
         debug!(
             rtt_addr = user_provided_addr,
             "Using explicit RTT control block address"
         );
-        rtt_scan_region = ScanRegion::Exact(user_provided_addr);
+        ScanRegion::Exact(user_provided_addr.into())
     } else if let Some(elf_file) = opts.elf_file.as_ref() {
         debug!(elf_file = %elf_file.display(), "Reading ELF file");
         let mut file = fs::File::open(elf_file).expect("open elf file");
         if let Some(rtt_addr) = get_rtt_symbol(&mut file) {
             debug!(rtt_addr = rtt_addr, "Found RTT symbol");
-            rtt_scan_region = ScanRegion::Exact(rtt_addr as _);
+            ScanRegion::Exact(rtt_addr as _)
+        } else {
+            session.target().rtt_scan_regions.clone()
         }
-    }
-
-    let memory_map = session.target().memory_map.clone();
+    } else {
+        session.target().rtt_scan_regions.clone()
+    };
 
     let mut core = session.core(opts.core).unwrap();
 
@@ -246,19 +241,14 @@ fn main() {
     }
 
     let mut rtt = match opts.attach_timeout {
-        Some(to) if !to.is_zero() => {
-            attach_retry_loop(&mut core, &memory_map, &rtt_scan_region, to).unwrap()
-        }
+        Some(to) if !to.is_zero() => attach_retry_loop(&mut core, &rtt_scan_region, to).unwrap(),
         _ => {
             debug!("Attaching to RTT");
-            Rtt::attach_region(&mut core, &memory_map, &rtt_scan_region).unwrap()
+            Rtt::attach_region(&mut core, &rtt_scan_region).unwrap()
         }
     };
 
-    let up_channel = rtt
-        .up_channels()
-        .take(opts.up_channel)
-        .expect("take up channel");
+    let up_channel = rtt.up_channels.remove(opts.up_channel);
     let up_channel_mode = up_channel.mode(&mut core).unwrap();
     let up_channel_name = up_channel.name().unwrap_or("NA");
     debug!(channel = up_channel.number(), name = up_channel_name, mode = ?up_channel_mode, buffer_size = up_channel.buffer_size(), "Opened up channel");
@@ -367,7 +357,6 @@ fn get_symbol<T: io::Read + io::Seek>(file: &mut T, symbol: &str) -> Option<u64>
 
 fn attach_retry_loop(
     core: &mut Core,
-    memory_map: &[MemoryRegion],
     scan_region: &ScanRegion,
     timeout: humantime::Duration,
 ) -> Option<Rtt> {
@@ -375,7 +364,7 @@ fn attach_retry_loop(
     let timeout: Duration = timeout.into();
     let start = Instant::now();
     while Instant::now().duration_since(start) <= timeout {
-        match Rtt::attach_region(core, memory_map, scan_region) {
+        match Rtt::attach_region(core, scan_region) {
             Ok(rtt) => return Some(rtt),
             Err(e) => {
                 if matches!(e, probe_rs::rtt::Error::ControlBlockNotFound) {
@@ -391,7 +380,7 @@ fn attach_retry_loop(
 
     // Timeout reached
     warn!("Timed out attaching to RTT");
-    Some(Rtt::attach(core, memory_map).expect("RTT attach"))
+    Some(Rtt::attach(core).expect("RTT attach"))
 }
 
 #[derive(Clone, Debug)]
