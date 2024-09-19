@@ -11,7 +11,7 @@ repository = "https://github.com/jonlamb-gh/rtt-reader"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 #probe-rs = "0.24"
-probe-rs = { git = "https://github.com/auxoncorp/probe-rs.git", branch = "s32k3xx" }
+probe-rs = { git = "https://github.com/auxoncorp/probe-rs.git", branch = "s32k3xx_test" }
 goblin = "0.8"
 clap = { version = "4.5", features = ["derive", "env", "color"] }
 humantime = "2"
