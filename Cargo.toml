@@ -14,6 +14,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 probe-rs = { git = "https://github.com/auxoncorp/probe-rs.git", branch = "s32k3xx_test" }
 goblin = "0.8"
 clap = { version = "4.5", features = ["derive", "env", "color"] }
+clap-num = "1.1"
 humantime = "2"
 human_bytes = "0.4"
 simple_moving_average = "1.0"
