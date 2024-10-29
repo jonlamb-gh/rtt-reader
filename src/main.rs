@@ -30,7 +30,7 @@ struct Opts {
     pub attach_timeout: Option<humantime::Duration>,
 
     /// Use the provided RTT control block address instead of scanning the target memory for it.
-    #[clap(long, name = "control-block-address")]
+    #[clap(long, name = "control-block-address", value_parser=clap_num::maybe_hex::<u32>)]
     pub control_block_address: Option<u32>,
 
     /// The RTT up (target to host) channel number to poll on (defaults to 1).
@@ -50,13 +50,13 @@ struct Opts {
     /// Protocol used to connect to chip.
     /// Possible options: [swd, jtag].
     ///
-    /// The default value is swd.                                                                                                       
+    /// The default value is swd.
     #[structopt(long, name = "protocol", default_value = "Swd")]
     pub protocol: WireProtocol,
 
-    /// The protocol speed in kHz.                                                                                                      
-    ///                                                                                                
-    /// The default value is 4000.                                                                     
+    /// The protocol speed in kHz.
+    ///
+    /// The default value is 4000.
     #[clap(long, name = "speed", default_value = "4000")]
     pub speed: u32,
 
