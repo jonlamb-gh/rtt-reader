@@ -14,7 +14,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 /// Write RTT data from target to a file
 #[derive(Parser, Debug, Clone)]
@@ -367,13 +367,9 @@ fn attach_retry_loop(
         match Rtt::attach_region(core, scan_region) {
             Ok(rtt) => return Some(rtt),
             Err(e) => {
-                if matches!(e, probe_rs::rtt::Error::ControlBlockNotFound) {
-                    std::thread::sleep(Duration::from_millis(50));
-                    continue;
-                }
-
-                error!("Failed to attach to RTT");
-                return None;
+                debug!(erro = %e, "Failed to attach to RTT");
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
             }
         }
     }
